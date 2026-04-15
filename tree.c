@@ -10,6 +10,7 @@
 //   "100644 hello.txt\0" followed by 32 raw bytes of SHA-256
 
 #include "tree.h"
+#include "pes.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -129,9 +130,58 @@ int tree_serialize(const Tree *tree, void **data_out, size_t *len_out) {
 //   - object_write    : save that binary buffer to the store as OBJ_TREE
 //
 // Returns 0 on success, -1 on error.
+//#include "object.h"   // add this at top if not present
+
 int tree_from_index(ObjectID *id_out) {
-    // TODO: Implement recursive tree building
-    // (See Lab Appendix for logical steps)
-    (void)id_out;
-    return -1;
+    Tree tree;
+    tree.count = 0;
+
+    FILE *fp = fopen(".pes/index", "r");
+    if (!fp) return -1;
+
+    char path[256];
+    char hash_hex[65];
+    unsigned int mode;
+    unsigned long mtime, size;
+
+    while (fscanf(fp, "%o %64s %lu %lu %255s",
+                  &mode, hash_hex, &mtime, &size, path) == 5) {
+
+        TreeEntry *e = &tree.entries[tree.count++];
+
+        // Set mode
+        e->mode = mode;
+
+        // Extract filename (ignore directories)
+        char *name = strrchr(path, '/');
+        if (name) name++;
+        else name = path;
+
+        strncpy(e->name, name, sizeof(e->name) - 1);
+        e->name[sizeof(e->name) - 1] = '\0';
+
+        // Convert hex → binary hash
+        for (int i = 0; i < 32; i++) {
+            sscanf(hash_hex + 2*i, "%2hhx", &e->hash.hash[i]);
+        }
+    }
+
+    fclose(fp);
+
+    // Serialize tree
+    void *data;
+    size_t len;
+
+    if (tree_serialize(&tree, &data, &len) != 0) {
+        return -1;
+    }
+
+    // Store tree object
+    if (object_write(OBJ_TREE, data, len, id_out) != 0) {
+        free(data);
+        return -1;
+    }
+
+    free(data);
+    return 0;
 }
